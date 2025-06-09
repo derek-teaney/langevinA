@@ -410,14 +410,16 @@ public:
                                            void *params) = 0,
                             void *params = 0) {
 
+    // Not const auto because we may change out of restart mode
     const auto &ahandler = data.ahandler;
     if (ahandler.restart) {
       try {
         read(ahandler.outputfiletag);
         return (0);
       } catch (const std::string &error) {
+        std::cout << "Error in restart -- aborting!" << std::endl;
         std::cout << error << std::endl;
-        std::cout << "Continuing with zerostart mode." << std::endl;
+        std::abort() ;
       }
     }
 
