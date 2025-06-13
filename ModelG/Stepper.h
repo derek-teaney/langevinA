@@ -10,34 +10,6 @@ public:
   virtual ~Stepper() = default;
 };
 
-/////////////////////////////////////////////////////////////////////////
-// Forward Euler integrator of dissipative Langevin
-class ForwardEuler : public Stepper {
-public:
-  ForwardEuler(ModelA &in, bool wnoise = true);
-  bool step(const double &dt);
-  void finalize();
-  ~ForwardEuler() { ; }
-
-private:
-  ModelA *model;
-  bool withNoise;
-  Vec noise;
-};
-
-/////////////////////////////////////////////////////////////////////////
-// Ideal Leap Frog integrator of ideal part
-class IdealLF : public Stepper {
-public:
-  IdealLF(ModelA &in);
-  void finalize() override;
-  bool step(const double &dt) override;
-
-  ~IdealLF() { ; }
-
-private:
-  ModelA *model;
-};
 
 /////////////////////////////////////////////////////////////////////////
 //! Helper class to monitor the jumps in phi at each time step, and to
@@ -187,6 +159,10 @@ struct g_face_case {
   int iB;  // either zero or one (indexing of the B cell relative to A)
   int jB;  // either zero or one  (indexing of the B cell relative to A)
   int kB;  // either zero or one  (indexing of the B cell relative to A)
+  void print() {
+    std::cout << "(EOA,iB,jB,kB): " << eoA << " (" << iB << "," << jB << ","
+              << kB << ")" << std::endl;
+  }
 };
 
 extern g_face_case g_face_cases[3][2];
@@ -195,48 +171,6 @@ PetscScalar modelg_update_charge_pair(const double &chi, const double &rms,
                                       const PetscScalar &nA,
                                       const PetscScalar &nB,
                                       o4_stepper_monitor &monitor);
-
-/////////////////////////////////////////////////////////////////////////
-// The Crank Nicholson step for q fields
-class ModelGChargeCN : public Stepper {
-public:
-  ModelGChargeCN(ModelA &in, bool withNoise = true);
-  bool step(const double &dt);
-  void finalize();
-  ~ModelGChargeCN() { ; }
-  static PetscErrorCode Form3PointLaplacian(DM da, Mat J, const double &hx,
-                                            const double &hy, const double &hz);
-
-private:
-  ModelA *model;
-  bool withNoise;
-
-  Vec rhs;
-  Vec noise_local;
-  Vec dn;
-  Mat J;
-  Mat A;
-
-  KSP ksp;
-};
-
-/////////////////////////////////////////////////////////////////////////
-class LFHBSplit : public Stepper {
-public:
-  LFHBSplit(ModelA &in);
-  bool step(const double &dt) override;
-  void finalize() override {
-    lf.finalize();
-    hbPhi.finalize();
-    hbN.finalize();
-  }
-  ~LFHBSplit() { ; }
-
-private:
-  IdealLF lf;
-  EulerLangevinHB hbPhi;
-  ModelGChargeHB hbN;
-};
 
 /////////////////////////////////////////////////////////////////////////
 class PV2HBSplit : public Stepper {
@@ -274,7 +208,6 @@ private:
   std::array<unsigned int, 2> stepcounts;
   bool nodiffusion;
   bool onlydiffusion;
-
 };
 
 #endif
