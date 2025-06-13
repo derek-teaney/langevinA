@@ -2,26 +2,26 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
-#include <iostream>
 #include <iomanip>
-#include <sstream>
+#include <iostream>
 #include <memory>
+#include <sstream>
 #include <vector>
 
 #include "ModelA.h"
 #include "NoiseGenerator.h"
 #include "Stepper.h"
+#include "gitversion.h"
 #include "make_unique.h"
 
 // Measurer, where the Petsc are included
 #include "measurer.h"
 #include "measurer_output.h"
 
-void thermalize_event(ModelA *const model) 
-{
-  const auto &ahandler = model->data.ahandler ;
-  auto &atime = model->data.atime ; 
-  auto &acoefficients = model->data.acoefficients ;
+void thermalize_event(ModelA *const model) {
+  const auto &ahandler = model->data.ahandler;
+  auto &atime = model->data.atime;
+  auto &acoefficients = model->data.acoefficients;
 
   // Initialize a quench.  Set the initial temperature (mass parameter)
   // according a given value and thermalize this initial condition.  Then,
@@ -29,55 +29,63 @@ void thermalize_event(ModelA *const model)
   // actual running (as opposed to initializing) the code. The reset process
   // is handled below
   const double mass0 = acoefficients.mass0; // Store the mass for reset process
-  const double dmassdt = acoefficients.dmassdt ; // Store the slope for reset process
-  if (ahandler.quench_mode) { 
-     acoefficients.mass0 = ahandler.quench_mode_mass0 ;
-     acoefficients.dmassdt = 0. ;
-     PetscPrintf(PETSC_COMM_WORLD, "Settinng up a quench initial condition with initial mass %e\n", acoefficients.mass0); 
+  const double dmassdt =
+      acoefficients.dmassdt; // Store the slope for reset process
+  if (ahandler.quench_mode) {
+    acoefficients.mass0 = ahandler.quench_mode_mass0;
+    acoefficients.dmassdt = 0.;
+    PetscPrintf(PETSC_COMM_WORLD,
+                "Settinng up a quench initial condition with initial mass %e\n",
+                acoefficients.mass0);
   }
 
   // Thermalize the state in memory at the initial time ;
-  int nsteps  = static_cast<int>(ahandler.thermalization_time / atime.dt()) ;
-  PetscPrintf(PETSC_COMM_WORLD, "Thermalizing event %d\n", ahandler.current_event); 
+  int nsteps = static_cast<int>(ahandler.thermalization_time / atime.dt());
+  PetscPrintf(PETSC_COMM_WORLD, "Thermalizing event %d\n",
+              ahandler.current_event);
 
   // Thermalize the initialconditions
-  std::unique_ptr<EulerLangevinHB> thermalizer = std::make_unique<EulerLangevinHB>(*model);
-  model->initialize_gaussian_charges() ;
-  for (int i = 0 ; i < nsteps ; i++) {
+  std::unique_ptr<EulerLangevinHB> thermalizer =
+      std::make_unique<EulerLangevinHB>(*model);
+  model->initialize_gaussian_charges();
+  for (int i = 0; i < nsteps; i++) {
     const int substeps = 6;
-    for (int j=0 ; j<substeps; j++){
-      thermalizer->step(atime.dt()/substeps) ;
+    for (int j = 0; j < substeps; j++) {
+      thermalizer->step(atime.dt() / substeps);
     }
     PetscPrintf(PETSC_COMM_WORLD,
-                "Thermalizing Event/Timestep %d/%d: step size = %g, time = %g, nsteps to thermalize = %d \n", ahandler.current_event, i, (double)atime.dt(),
-                (double)atime.t(), nsteps);
+                "Thermalizing Event/Timestep %d/%d: step size = %g, time = %g, "
+                "nsteps to thermalize = %d, mass %e \n",
+                ahandler.current_event, i, (double)atime.dt(),
+                (double)atime.t(), nsteps, model->data.mass());
   }
   thermalizer->finalize();
 
-  //If we are performing a quench, set the mass back to its nominal value.
-  if (ahandler.quench_mode) { 
-     PetscPrintf(PETSC_COMM_WORLD, "Finalizing  quench initial condition with initial mass %e\n", acoefficients.mass0); 
+  // If we are performing a quench, set the mass back to its nominal value.
+  if (ahandler.quench_mode) {
+    PetscPrintf(PETSC_COMM_WORLD,
+                "Finalizing  quench initial condition with initial mass %e\n",
+                acoefficients.mass0);
 
-     acoefficients.mass0 = mass0 ;
-     acoefficients.dmassdt = dmassdt ;
+    acoefficients.mass0 = mass0;
+    acoefficients.dmassdt = dmassdt;
 
-     PetscPrintf(PETSC_COMM_WORLD, "and final initial mass %e\n", acoefficients.mass0); 
+    PetscPrintf(PETSC_COMM_WORLD, "and final initial mass %e\n",
+                acoefficients.mass0);
   }
 }
 
+void run_event(ModelA *const model, Stepper *const step) {
 
-void run_event(ModelA* const model,Stepper* const step) 
-{
-  int rank = -1;
-  MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+  const auto &ahandler = model->data.ahandler;
+  auto &atime = model->data.atime;
+  atime.reset();
 
-  const auto &ahandler = model->data.ahandler ;
-  auto &atime = model->data.atime ;
-  atime.reset() ;
+  if (not ahandler.restart) {
+    thermalize_event(model);
+  }
 
-  thermalize_event(model) ;
-
-  // Set up logging for PETSc so we can find out how much time 
+  // Set up logging for PETSc so we can find out how much time
   // each part takes
   PetscInt steps = 0;
   PetscLogEvent measurements, stepmonitor, saving;
@@ -96,15 +104,19 @@ void run_event(ModelA* const model,Stepper* const step)
     filename = ahandler.outputfiletag + ".h5";
   }
   // Set file access
-  PetscFileMode file_access = FILE_MODE_WRITE ;
+  PetscFileMode file_access = FILE_MODE_WRITE;
   if (ahandler.restart) {
     file_access = FILE_MODE_APPEND;
-  }  
+  }
   // Open the file and create the measurement object
-  Measurer measurer(model) ;
-  std::unique_ptr<measurer_output_fasthdf5> measurer_output ;
-  if (rank ==0) {
-    measurer_output = std::make_unique<measurer_output_fasthdf5>(&measurer, filename, file_access);
+  Measurer measurer(model);
+
+  int rank = -1;
+  MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
+  std::unique_ptr<measurer_output_fasthdf5> measurer_output;
+  if (rank == 0) {
+    measurer_output = std::make_unique<measurer_output_fasthdf5>(
+        &measurer, filename, file_access);
   }
 
   // Start the loop
@@ -115,21 +127,24 @@ void run_event(ModelA* const model,Stepper* const step)
     if (steps % ahandler.saveFrequency == 0) {
       PetscLogEventBegin(measurements, 0, 0, 0, 0);
       measurer.measure(&model->solution);
-      if (rank==0) {
-        measurer_output->save() ;
+      if (rank == 0) {
+        measurer_output->save();
       }
       PetscPrintf(PETSC_COMM_WORLD,
-                  "Event/Timestep %d/%d: step size = %g, time = %g, final = %g\n", ahandler.current_event, steps,
-                  (double)atime.dt(), (double)atime.t(), (double)atime.tfinal());
+                  "Event/Timestep %d/%d: step size = %g, time = %g, final = "
+                  "%g, mass = %e\n",
+                  ahandler.current_event, steps, (double)atime.dt(),
+                  (double)atime.t(), (double)atime.tfinal(),
+                  model->data.mass());
       PetscLogEventEnd(measurements, 0, 0, 0, 0);
     }
 
     // Write the solution to tape if writeFrequency > 0. This is used for
     // plotting of the solution. It is normally not analyzed, or written.
-    if(ahandler.writeFrequency > 0 and steps % ahandler.writeFrequency == 0) {
+    if (ahandler.writeFrequency > 0 and steps % ahandler.writeFrequency == 0) {
       PetscLogEventBegin(saving, 0, 0, 0, 0);
       std::ostringstream tString;
-      tString << std::setprecision(4) <<"_t_" << atime.t();
+      tString << std::setprecision(4) << "_t_" << atime.t();
       model->write(ahandler.outputfiletag + tString.str());
       PetscLogEventEnd(saving, 0, 0, 0, 0);
     }
@@ -144,7 +159,6 @@ void run_event(ModelA* const model,Stepper* const step)
     atime += atime.dt();
   }
 }
-
 
 int main(int argc, char **argv) {
 
@@ -170,6 +184,7 @@ int main(int argc, char **argv) {
                 filename);
     return PetscFinalize();
   }
+  PetscPrintf(PETSC_COMM_WORLD, "Current version: %s\n", gitversion);
 
   // Digest the inputs, some fields may be modified on ouptut
   ModelAData inputdata(inputs);
@@ -185,38 +200,38 @@ int main(int argc, char **argv) {
   // allocate the grid and initialize
   ModelA model(inputdata);
 
-  // Read in the initial conditions or initialize to zero 
-  model.initialize() ;
+  // Read in the initial conditions or initialize to zero
+  model.initialize();
 
-  // Construct the stepper 
-  std::unique_ptr<Stepper> step; 
-  auto &etype = inputdata.ahandler.evolverType ;
+  // Construct the stepper
+  std::unique_ptr<Stepper> step;
+  auto &etype = inputdata.ahandler.evolverType;
   if (etype == "PV2HBSplit23") {
-     std::array<unsigned int, 2> s = {2, 3};
-     step = std::make_unique<PV2HBSplit>(model, s);
+    std::array<unsigned int, 2> s = {2, 3};
+    step = std::make_unique<PV2HBSplit>(model, s);
   } else if (etype == "PV2HBSplit23NoDiffuse") {
-     std::array<unsigned int, 2> s = {2, 3};
-     const bool nodiffuse = true ;
-     step = std::make_unique<PV2HBSplit>(model, s, nodiffuse);
+    std::array<unsigned int, 2> s = {2, 3};
+    const bool nodiffuse = true;
+    step = std::make_unique<PV2HBSplit>(model, s, nodiffuse);
   } else if (etype == "PV2HBSplit23OnlyDiffuse") {
-     std::array<unsigned int, 2> s = {2, 3};
-     const bool nodiffuse = false;
-     const bool onlydiffuse = true ;
-     step = std::make_unique<PV2HBSplit>(model, s, nodiffuse, onlydiffuse);
+    std::array<unsigned int, 2> s = {2, 3};
+    const bool nodiffuse = false;
+    const bool onlydiffuse = true;
+    step = std::make_unique<PV2HBSplit>(model, s, nodiffuse, onlydiffuse);
   } else {
     PetscPrintf(PETSC_COMM_WORLD, "Unrecognized stepper type %s. Aborting...\n",
                 etype.c_str());
     return PetscFinalize();
   }
 
-  auto &ahandler = model.data.ahandler ;
-  if (ahandler.eventmode) { 
-    for (int i = 0 ;  i < ahandler.nevents ; i++ )  {
-      run_event(&model, step.get()) ;
-      ahandler.current_event++ ;
+  auto &ahandler = model.data.ahandler;
+  if (ahandler.eventmode) {
+    for (int i = 0; i < ahandler.nevents; i++) {
+      run_event(&model, step.get());
+      ahandler.current_event++;
     }
-  } else  {
-    run_event(&model, step.get()) ;
+  } else {
+    run_event(&model, step.get());
   }
 
   // Destroy everything
