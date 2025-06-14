@@ -33,7 +33,6 @@ LDFLAGS := $(shell pkg-config --libs-only-L --libs-only-other $(PACKAGES))
 LDFLAGS += $(patsubst -L%, $(shell pkg-config --variable=ldflag_rpath $(PACKAGES))%, $(shell pkg-config --libs-only-L $(PACKAGES)))
 LDLIBS := $(shell pkg-config --libs-only-l $(PACKAGES)) -lm 
 
-
 #CXXFLAGS += -DMODELA_NO_HDF5 -DMODELA_NO_MAKE_UNIQUE
 
 # Many suffixes are covered by implicit rules, but you may need to write custom rules
@@ -54,11 +53,11 @@ LDLIBS := $(shell pkg-config --libs-only-l $(PACKAGES)) -lm
 # (with a program statement appearing in a.F90 or main() appearing in the C or
 # C++ source).  This can be built by uncommenting the following two lines.
 
-HEADRS = ModelA.h Stepper.h NoiseGenerator.h measurer.h measurer_output.h O4AlgebraHelper.h ntuple.h
+
+HEADRS = ModelA.h Stepper.h NoiseGenerator.h measurer.h measurer_output.h O4AlgebraHelper.h ntuple.h gitversion.h
 OBJS = measurer.o measurer_output.o Stepper.o NoiseGenerator.o jsoncpp.o
 
-#HEADRS = ModelA.h Stepper.h NoiseGenerator.h measurer.h plotter.h O4AlgebraHelper.h
-#OBJS = measurer.o Stepper.o NoiseGenerator.o jsoncpp.o
+all: SuperPions.exe SuperQuench.exe
 
 SuperPions.exe: SuperPions.o $(OBJS)
 	$(LINK.cc) -o $@ $^ $(LDLIBS) -lstdc++
@@ -80,6 +79,9 @@ measurer.o: measurer.cxx $(HEADRS)
 
 measurer_output.o: measurer_output.cxx $(HEADRS)
 	$(COMPILE.cc) $(OUTPUT_OPTION) $<
+
+gitversion.h:
+	printf "#ifndef GITVERSION_H\n#define GITVERSION_H\nconst char *gitversion = \"$(shell git rev-parse HEAD)\";\n#endif" > $@
 
 NoiseGenerator.o: NoiseGenerator.cxx NoiseGenerator.h
 	$(COMPILE.cc) $(OUTPUT_OPTION) $<
@@ -113,11 +115,6 @@ test_json.exe: jsoncpp.o test_json.cpp
 	$(COMPILE.cc) test_json.cpp
 	$(LINK.cc) -o test_json.exe test_json.o jsoncpp.o -lstdc++
 
-x2k.exe : x2k.o $(OBJS)
-	$(LINK.cc) -o $@ $^ $(LDLIBS) -lstdc++
-
-x2k.o: x2k.cxx $(HEADRS)
-	$(COMPILE.cc) $(OUTPUT_OPTION) $<
 
 test_ntuple.exe: test_ntuple.o $(OBJS) 
 	$(LINK.cc) -o $@ $^ $(LDLIBS) -lstdc++

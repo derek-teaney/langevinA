@@ -20,11 +20,11 @@
 // The ModelATime structure manages time-stepping information for the
 // simulation. The ModelACoefficients structure holds thermodynamic and
 // transport coefficients. The ModelAHandlerData structure contains options and
-// settings for managing the simulation run. The ModelAData class aggregates all
-// static data and configuration options for the simulation. The G_node and
+// settings for managing the simulation run. The ModelAData class aggregates
+// all static data and configuration options for the simulation. The G_node and
 // define data types for grid nodes in the simulation. The ModelA class
-// encapsulates the entire simulation, including grid setup, initialization, and
-// finalization.
+// encapsulates the entire simulation, including grid setup, initialization,
+// and finalization.
 
 // POD structure for recording the time stepping information. The finaltime is
 // the final time of the simulation, the initialtime is the initial time, and
@@ -140,6 +140,11 @@ struct ModelAHandlerData {
   bool quench_mode = false;
   double quench_mode_mass0 = -4.70052;
 
+  // Initial amplitude, standing waves bool and dimension of init cond.
+  PetscReal init_amp = 1.0;
+  bool standing_waves = false;
+  int init_dim = 1;
+
   void read(Json::Value &params) {
     evolverType = params.get("evolverType", evolverType).asString();
     seed = (PetscInt)params.get("seed", seed).asInt();
@@ -156,6 +161,10 @@ struct ModelAHandlerData {
 
     eventmode = params.get("eventmode", eventmode).asBool();
     nevents = params.get("nevents", nevents).asInt();
+
+    init_amp = params.get("init_amp", init_amp).asDouble();
+    standing_waves = params.get("standing_waves", standing_waves).asBool();
+    init_dim = params.get("init_dim", init_dim).asInt();
   }
 
   void print() {
@@ -177,6 +186,10 @@ struct ModelAHandlerData {
     PetscPrintf(PETSC_COMM_WORLD, "eventmode = %s\n",
                 (eventmode ? "true" : "false"));
     PetscPrintf(PETSC_COMM_WORLD, "nevents = %d\n", nevents);
+    PetscPrintf(PETSC_COMM_WORLD, "init_amp = %e\n", init_amp);
+    PetscPrintf(PETSC_COMM_WORLD, "standing_waves = %s\n",
+                (standing_waves ? "true" : "false"));
+    PetscPrintf(PETSC_COMM_WORLD, "init_dim = %d\n", init_dim);
   }
 };
 
@@ -410,7 +423,6 @@ public:
                                            void *params) = 0,
                             void *params = 0) {
 
-    // Not const auto because we may change out of restart mode
     const auto &ahandler = data.ahandler;
     if (ahandler.restart) {
       try {
@@ -419,7 +431,7 @@ public:
       } catch (const std::string &error) {
         std::cout << "Error in restart -- aborting!" << std::endl;
         std::cout << error << std::endl;
-        std::abort() ;
+        std::abort();
       }
     }
 
@@ -460,12 +472,9 @@ public:
     return (0);
   }
 
+  // Routine that initializes charge fields according to a gaussian distribution
+  // and subtracts the total charge afterwards
   PetscErrorCode initialize_gaussian_charges() {
-    // Compute the lattice spacing
-    PetscReal hx = data.hX();
-    PetscReal hy = data.hY();
-    PetscReal hz = data.hZ();
-
     // This Get a pointer to do the calculation
     PetscScalar ****u;
     PetscCall(DMDAVecGetArrayDOF(domain, solution, &u));
@@ -477,6 +486,8 @@ public:
     PetscCall(DMDAGetCorners(domain, &xstart, &ystart, &zstart, &xdimension,
                              &ydimension, &zdimension));
 
+    // We are going initialize the grid with the charges being gaussian random
+    // numbers. The charges are normalized so that the total charge is zero.
     std::vector<PetscScalar> charge_sum_local(ModelAData::Ndof, 0.);
     std::vector<PetscScalar> charge_sum(ModelAData::Ndof, 0.);
 
@@ -523,6 +534,211 @@ public:
 
     return (0);
   }
-};
 
+  // Routine that initializes the fields randomly under the constraint phi^2 =
+  // R, i.e. uniformly distributed spins on a 4d sphere
+  //
+  // Use hyperspherical coordinates:
+  // s_0 = R * sin(phi) * sin(theta1) * sin(theta2)
+  // s_1 = R * cos(phi) * sin(theta1) * sin(theta2)
+  // s_2 = R * cos(theta1) * sin(theta2)
+  // s_3 = R * cos(theta2)
+  //
+  // Measure: sin(theta1) sin^2(theta2) dphi dtheta1 dtheta2
+  PetscErrorCode initialize_random_spins() {
+
+    constexpr auto PI = 3.14159265358979323846;
+
+    // This Get a pointer to do the calculation
+    PetscScalar ****u;
+    DMDAVecGetArrayDOF(domain, solution, &u);
+
+    // Get the Local Corner od the vector
+    PetscInt i, j, k, xstart, ystart, zstart, xdimension, ydimension,
+        zdimension;
+
+    DMDAGetCorners(domain, &xstart, &ystart, &zstart, &xdimension, &ydimension,
+                   &zdimension);
+
+    PetscReal R = data.ahandler.init_amp;
+    PetscReal phi;
+    PetscReal theta1;
+    PetscReal theta2;
+
+    // boolean and reals needed for rejection sampling
+    bool accepted;
+    PetscReal guess;
+    PetscReal reference;
+
+    // iterate over all lattice points
+    for (k = zstart; k < zstart + zdimension; k++) {
+      for (j = ystart; j < ystart + ydimension; j++) {
+        for (i = xstart; i < xstart + xdimension; i++) {
+
+          // get random uniform sample for phi
+          phi = 2.0 * PI * ModelARndm->uniform();
+
+          accepted = false;
+
+          // loop for rejection sampling
+          // (needed to sample thetas according to sin(theta1) * sin^2(theta2) )
+          while (accepted == false) {
+            // get random uniform sample for thetas and guess
+            theta1 = PI * ModelARndm->uniform();
+            theta2 = PI * ModelARndm->uniform();
+            guess = ModelARndm->uniform();
+
+            // calculate reference value
+            reference = std::sin(theta1) * std::sin(theta2) * std::sin(theta2);
+
+            // accept if guess <= reference, otherwise reject (loop again)
+            if (guess <= reference)
+              accepted = true;
+          }
+
+          // only initialize the field components
+          u[k][j][i][0] =
+              R * std::sin(phi) * std::sin(theta1) * std::sin(theta2);
+          u[k][j][i][1] =
+              R * std::cos(phi) * std::sin(theta1) * std::sin(theta2);
+          u[k][j][i][2] = R * std::cos(theta1) * std::sin(theta2);
+          u[k][j][i][3] = R * std::cos(theta2);
+        }
+      }
+    }
+
+    DMDAVecRestoreArrayDOF(domain, solution, &u);
+
+    return (0);
+  }
+
+  // Routine that initializes the fields randomly according to a wave with wave
+  // number k = 4pi/L and normalization phi^2 = init_amp = R
+  //
+  // if init_dim = 1 and standing_waves = false
+  // s_0 = R * cos(kx)
+  // s_1 = R * sin(kx)
+  // n_01 = k * chi = omega * chi
+  // rest 0
+  //
+  // if init_dim = 2
+  // s_0 = R * cos(kx) cos(ky)
+  // s_1 = R * sin(kx) cos(ky)
+  // s_2 = R * sin(ky)
+  // n_01 = k * chi = omega * chi
+  // n_02 = k * chi = omega * chi
+  // n_12 = k * chi = omega * chi
+  // rest 0
+  //
+  // if init_dim = 1 and standing_waves = true
+  // s_0 = R * cos(kx)
+  // s_1 = 0
+  // s_2 = R * sin(ky)
+  // n_01 = k * chi = omega * chi
+  // rest 0
+  PetscErrorCode initialize_wave_spins() {
+
+    constexpr auto PI = 3.14159265358979323846;
+
+    PetscScalar chi = data.acoefficients.chi;
+    PetscReal wave_k = 4 * PI / data.LX;
+    PetscReal argument;
+
+    // This Get a pointer to do the calculation
+    PetscScalar ****u;
+    DMDAVecGetArrayDOF(domain, solution, &u);
+
+    // We are going initialize the grid with the charges being gaussian random
+    // numbers. The charges are normalized so that the total charge is zero.
+    std::vector<PetscScalar> charge_sum_local(ModelAData::Ndof, 0.);
+    std::vector<PetscScalar> charge_sum(ModelAData::Ndof, 0.);
+
+    // Get the Local Corner od the vector
+    PetscInt i, j, k, L, xstart, ystart, zstart, xdimension, ydimension,
+        zdimension;
+
+    DMDAGetCorners(domain, &xstart, &ystart, &zstart, &xdimension, &ydimension,
+                   &zdimension);
+    for (k = zstart; k < zstart + zdimension; k++) {
+      for (j = ystart; j < ystart + ydimension; j++) {
+        for (i = xstart; i < xstart + xdimension; i++) {
+
+          argument = wave_k;
+          for (L = 0; L < ModelAData::Ndof; L++) {
+
+            // field components s_a
+            if (L < ModelAData::Nphi) {
+
+              // s_0 component
+              if (L == 0) {
+                u[k][j][i][L] = data.ahandler.init_amp;
+                // 1d init cond.
+                if (data.ahandler.init_dim == 1) {
+                  u[k][j][i][L] *= cos(argument * i);
+                }
+                // 2d init cond.
+                else if (data.ahandler.init_dim == 2) {
+                  u[k][j][i][L] *= cos(argument * i) * cos(argument * j);
+                }
+              }
+              // s_1 component
+              else if (L == 1) {
+                u[k][j][i][L] = data.ahandler.init_amp;
+                // 1d init cond.
+                if (data.ahandler.init_dim == 1) {
+                  // if standing wave solution
+                  if (data.ahandler.standing_waves) {
+                    u[k][j][i][L] *= 0.0;
+                  } else {
+                    u[k][j][i][L] *= sin(argument * i);
+                  }
+                }
+                // 2d init cond.
+                else if (data.ahandler.init_dim == 2) {
+                  u[k][j][i][L] *= sin(argument * i) * cos(argument * j);
+                }
+              }
+              // s_2 component
+              else if (L == 2) {
+                u[k][j][i][L] = data.ahandler.init_amp;
+                // 1d init cond.
+                if (data.ahandler.init_dim == 1) {
+                  // if standing wave solution
+                  if (data.ahandler.standing_waves) {
+                    u[k][j][i][L] *= sin(argument * i);
+                  } else {
+                    u[k][j][i][L] *= 0.0;
+                  }
+                }
+                // 2d init cond.
+                else if (data.ahandler.init_dim == 2) {
+                  u[k][j][i][L] *= sin(argument * j);
+                }
+              }
+            }
+
+            // charges n_A (4,5,6) and n_V (7,8,9)
+            else {
+              // (n_A)_0 (or n_01)
+              if (L == 4) {
+                u[k][j][i][L] = wave_k * chi;
+              }
+              // (n_A)_0 (or n_01) OR (n_V)_2 (or n_12)
+              else if (L == 5 || L == 9) {
+                // 2d init cond.
+                if (data.ahandler.init_dim == 2) {
+                  u[k][j][i][L] = wave_k * chi;
+                }
+              }
+            }
+          } // end of assignment for single point
+        }
+      }
+    } // end of loop over all points
+
+    DMDAVecRestoreArrayDOF(domain, solution, &u);
+
+    return (0);
+  }
+};
 #endif
