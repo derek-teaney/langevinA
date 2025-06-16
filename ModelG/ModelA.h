@@ -2,7 +2,6 @@
 #define MODELASTRUCT
 
 #include "NoiseGenerator.h"
-#include "json/json.h"
 #include <fstream>
 #include <petscdm.h>
 #include <petscdmda.h>
@@ -12,6 +11,7 @@
 #include <petscviewerhdf5.h>
 #endif
 #include "make_unique.h"
+#include "nlohmann/json.hpp"
 
 // This header file defines the structure and behavior of a simulation model
 // called ModelA. It includes necessary libraries and defines several classes
@@ -52,10 +52,10 @@ struct ModelATime {
     return finaltime;
   }
 
-  void read(const Json::Value &params) {
-    finaltime = params.get("finaltime", finaltime).asDouble();
-    initialtime = params.get("initialtime", initialtime).asDouble();
-    deltat = params.get("deltat", deltat).asDouble();
+  void read(nlohmann::json &params) {
+    finaltime = params.value("finaltime", finaltime);
+    initialtime = params.value("initialtime", initialtime);
+    deltat = params.value("deltat", deltat);
     time = initialtime;
   }
 
@@ -93,18 +93,18 @@ struct ModelACoefficients {
   PetscReal f2(const double &t) const { return f2_constant; }
   PetscReal sigmabyf(const double &t) const { return sigmabyf_constant; }
 
-  void read(const Json::Value &params) {
-    mass0 = params.get("mass0", mass0).asDouble();
-    dmassdt = params.get("dmassdt", 0.).asDouble();
+  void read(nlohmann::json &params) {
+    mass0 = params.value("mass0", mass0);
+    dmassdt = params.value("dmassdt", 0.);
 
-    lambda = params.get("lambda", lambda).asDouble();
-    H = params.get("H", H).asDouble();
-    chi = params.get("chi", chi).asDouble();
+    lambda = params.value("lambda", lambda);
+    H = params.value("H", H);
+    chi = params.value("chi", chi);
 
-    gamma = params.get("gamma", gamma).asDouble();
-    diffusion = params.get("diffusion", 1. / 3. * gamma).asDouble();
+    gamma = params.value("gamma", gamma);
+    diffusion = params.value("diffusion", 1. / 3. * gamma);
 
-    f2_constant = params.get("f2_constant", f2_constant).asDouble();
+    f2_constant = params.value("f2_constant", f2_constant);
   }
 
   void print() {
@@ -153,24 +153,23 @@ struct ModelAHandlerData {
 
   bool superfluidmode = false;
 
-  void read(Json::Value &params) {
-    evolverType = params.get("evolverType", evolverType).asString();
-    seed = (PetscInt)params.get("seed", seed).asInt();
-    restart = params.get("restart", false).asBool();
-    outputfiletag = params.get("outputfiletag", "o4output").asString();
-    saveFrequency = params.get("saveFrequency", saveFrequency).asInt();
-    writeFrequency = params.get("writeFrequency", writeFrequency).asInt();
+  void read(nlohmann::json &params) {
+    evolverType = params.value("evolverType", evolverType);
+    seed = (PetscInt)params.value("seed", seed);
+    restart = params.value("restart", false);
+    outputfiletag = params.value("outputfiletag", "o4output");
+    saveFrequency = params.value("saveFrequency", saveFrequency);
+    writeFrequency = params.value("writeFrequency", writeFrequency);
+
+    eventmode = params.value("eventmode", eventmode);
+    nevents = params.value("nevents", nevents);
     thermalization_time =
-        params.get("thermalization_time", thermalization_time).asDouble();
+        params.value("thermalization_time", thermalization_time);
 
-    quench_mode = params.get("quench_mode", quench_mode).asBool();
-    quench_mode_mass0 =
-        params.get("quench_mode_mass0", quench_mode_mass0).asDouble();
+    quench_mode = params.value("quench_mode", quench_mode);
+    quench_mode_mass0 = params.value("quench_mode_mass0", quench_mode_mass0);
 
-    eventmode = params.get("eventmode", eventmode).asBool();
-    nevents = params.get("nevents", nevents).asInt();
-
-    superfluidmode = params.get("superfluidmode", superfluidmode).asBool();
+    superfluidmode = params.value("superfluidmode", superfluidmode);
   }
 
   void print() {
@@ -181,6 +180,11 @@ struct ModelAHandlerData {
     PetscPrintf(PETSC_COMM_WORLD, "outputfiletag = %s\n",
                 outputfiletag.c_str());
     PetscPrintf(PETSC_COMM_WORLD, "saveFrequency = %d\n", saveFrequency);
+    PetscPrintf(PETSC_COMM_WORLD, "writeFrequency = %d\n", writeFrequency);
+
+    PetscPrintf(PETSC_COMM_WORLD, "eventmode = %s\n",
+                (eventmode ? "true" : "false"));
+    PetscPrintf(PETSC_COMM_WORLD, "nevents = %d\n", nevents);
     PetscPrintf(PETSC_COMM_WORLD, "thermalization_time = %e\n",
                 thermalization_time);
 
@@ -189,9 +193,6 @@ struct ModelAHandlerData {
     PetscPrintf(PETSC_COMM_WORLD, "quench_mode_mass0 = %e\n",
                 quench_mode_mass0);
 
-    PetscPrintf(PETSC_COMM_WORLD, "eventmode = %s\n",
-                (eventmode ? "true" : "false"));
-    PetscPrintf(PETSC_COMM_WORLD, "nevents = %d\n", nevents);
     PetscPrintf(PETSC_COMM_WORLD, "superfluidmode = %s\n",
                 (superfluidmode ? "true" : "false"));
   }
@@ -236,14 +237,14 @@ public:
   ModelAHandlerData ahandler;
 
 public:
-  ModelAData(Json::Value &params) {
+  ModelAData(nlohmann::json &params) {
     // Lattice. By default, NY=NX and NZ=NX.
-    NX = params["NX"].asInt();
+    NX = params["NX"];
     NY = NX;
     NZ = NX;
 
     // By default, dx=dy=dz=1, namely LX=NX, LY=NY, LZ=NZ.
-    LX = params.get("LX", NX).asInt();
+    LX = params.value("LX", NX);
     LY = LX;
     LZ = LX;
 

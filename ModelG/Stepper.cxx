@@ -312,7 +312,7 @@ bool EulerLangevinHB::step(const double &dt) {
   double f = 0. ;
   if (ahandler.superfluidmode) {
     double f = sqrt(coeff.f2(atime.t()));
-    double sigmabyf = coeff.sigmabyf(t);
+    double sigmabyf = coeff.sigmabyf(atime.t());
     H *= sigmabyf;
   }
 

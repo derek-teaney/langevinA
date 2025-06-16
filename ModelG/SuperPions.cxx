@@ -175,7 +175,7 @@ int main(int argc, char **argv) {
   char filename[PETSC_MAX_PATH_LEN] = "";
   ierr = PetscOptionsGetString(NULL, NULL, "-input", filename, sizeof(filename),
                                NULL);
-  Json::Value inputs;
+  nlohmann::json  inputs;
   std::ifstream ifs(filename);
   if (ifs) {
     ifs >> inputs;

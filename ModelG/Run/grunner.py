@@ -46,10 +46,10 @@ data = {
     # For running multi-events
     "eventmode": False,
     "nevents": 1,
-    "diffusiononly": False
+    "diffusiononly": False,
 
     # parameters for superfluid events
-    "superfluidmode": False
+    "superfluidmode": False, 
     "f2_constant" : 1, 
 }
 
