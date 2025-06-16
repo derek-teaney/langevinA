@@ -87,7 +87,10 @@ bool IdealPV2::step_no_reject(const double &dt) {
   PetscCall(DMDAVecGetArray(da, model->solution, &phinew));
 
   const auto &coeff = data.acoefficients;
-  const PetscReal H[4] = {coeff.H, 0., 0., 0.};
+  PetscReal H[4] = {coeff.H, 0., 0., 0.};
+  if (data.ahandler.superfluidmode) {
+    H[0] *= coeff.sigmabyf(data.atime.t());
+  }
   const PetscReal axx = pow(1. / data.hX(), 2);
   const PetscReal ayy = pow(1. / data.hY(), 2);
   const PetscReal azz = pow(1. / data.hZ(), 2);
@@ -294,11 +297,24 @@ bool EulerLangevinHB::step(const double &dt) {
   G_node phi_o = {};
   G_node phi_n = {};
 
+  const auto &ahandler = model->data.ahandler;
+  const auto &atime = model->data.atime;
   const auto &coeff = model->data.acoefficients;
   const double &Lambda2 = 0.5 * (2. * 3. + model->data.mass()); // mass term
   const double &lambda = coeff.lambda;
-  const double &H = coeff.H;
-  const PetscReal rdtg = sqrt(2. * dt * coeff.gamma);
+
+  double H = coeff.H;
+  double rdtg = sqrt(2. * dt * coeff.gamma);
+
+  // In superfluid mode the coefficients are modified.  rdtg,  which is a
+  // measure of the field diffusion,  is divided by f2. Similarly the field, H,
+  // is multiplied  by a factor $\bar \sigma/f$.
+  double f = 0. ;
+  if (ahandler.superfluidmode) {
+    double f = sqrt(coeff.f2(atime.t()));
+    double sigmabyf = coeff.sigmabyf(t);
+    H *= sigmabyf;
+  }
 
   PetscLogEvent communication, random, loop;
   PetscLogEventRegister("Communication", 0, &communication);
@@ -334,13 +350,32 @@ bool EulerLangevinHB::step(const double &dt) {
           PetscScalar s_o = 0.;    // old sum of phi**2
           PetscScalar s_n = 0.;    // new sum of phi**2
 
+          if (ahandler.superfluidmode) {
+            // This is the update for superfluid mode
+            for (int l = 0; l < ModelAData::Nphi; l++) {
+              phi_o.f[l] = phi[k][j][i].f[l]; // Fill up the old values
+              phi_n.f[l] = phi[k][j][i].f[l]; // Will hold the new values
+            }
+
+            // Fill up random angles and do the rotation
+            PetscScalar V[3], A[3];
+            for (int iva = 0; iva < ModelAData::NV; iva++) {
+              V[iva] = rdtg * ModelARndm->variance1() / f;
+              A[iva] = rdtg * ModelARndm->variance1() / f;
+            }
+            O4AlgebraHelper::O4Rotation(V, A, phi_n.f);
+          } else {
+            // This is the normal model A updatae
+            for (int l = 0; l < ModelAData::Nphi; l++) {
+              phi_o.f[l] = phi[k][j][i].f[l]; // Fill up the old values
+              phi_n.f[l] = phi_o.f[l] + rdtg * ModelARndm->variance1();
+            }
+          }
+
           for (int l = 0; l < ModelAData::Nphi; l++) {
             heff.f[l] = (phi[k][j][i + 1].f[l] + phi[k][j][i - 1].f[l]) +
                         (phi[k][j + 1][i].f[l] + phi[k][j - 1][i].f[l]) +
                         (phi[k + 1][j][i].f[l] + phi[k - 1][j][i].f[l]);
-
-            phi_o.f[l] = phi[k][j][i].f[l];
-            phi_n.f[l] = phi_o.f[l] + rdtg * ModelARndm->variance1();
 
             s_o += pow(phi_o.f[l], 2);
             s_n += pow(phi_n.f[l], 2);

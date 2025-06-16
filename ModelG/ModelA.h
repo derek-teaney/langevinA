@@ -80,11 +80,18 @@ struct ModelACoefficients {
   PetscReal gamma = 1.;
   PetscReal diffusion = 0.3333333;
 
+  PetscReal f2_constant = 1;
+  const PetscReal sigmabyf_constant = 0.946;
+
   // Returns the value of the mass at a given time t.
   PetscReal mass(const double &t) const { return mass0 + dmassdt * t; }
 
   PetscReal sigma() const { return diffusion * chi; }
   PetscReal D() const { return diffusion; }
+
+  // These are superfluid coefficients
+  PetscReal f2(const double &t) const { return f2_constant; }
+  PetscReal sigmabyf(const double &t) const { return sigmabyf_constant; }
 
   void read(const Json::Value &params) {
     mass0 = params.get("mass0", mass0).asDouble();
@@ -96,6 +103,8 @@ struct ModelACoefficients {
 
     gamma = params.get("gamma", gamma).asDouble();
     diffusion = params.get("diffusion", 1. / 3. * gamma).asDouble();
+
+    f2_constant = params.get("f2_constant", f2_constant).asDouble();
   }
 
   void print() {
@@ -107,6 +116,8 @@ struct ModelACoefficients {
     PetscPrintf(PETSC_COMM_WORLD, "chi = %e\n", chi);
     PetscPrintf(PETSC_COMM_WORLD, "gamma = %e\n", gamma);
     PetscPrintf(PETSC_COMM_WORLD, "diffusion = %e\n", diffusion);
+
+    PetscPrintf(PETSC_COMM_WORLD, "f2_constant = %e\n", f2_constant);
   }
 };
 
@@ -140,10 +151,7 @@ struct ModelAHandlerData {
   bool quench_mode = false;
   double quench_mode_mass0 = -4.70052;
 
-  // Initial amplitude, standing waves bool and dimension of init cond.
-  PetscReal init_amp = 1.0;
-  bool standing_waves = false;
-  int init_dim = 1;
+  bool superfluidmode = false;
 
   void read(Json::Value &params) {
     evolverType = params.get("evolverType", evolverType).asString();
@@ -162,9 +170,7 @@ struct ModelAHandlerData {
     eventmode = params.get("eventmode", eventmode).asBool();
     nevents = params.get("nevents", nevents).asInt();
 
-    init_amp = params.get("init_amp", init_amp).asDouble();
-    standing_waves = params.get("standing_waves", standing_waves).asBool();
-    init_dim = params.get("init_dim", init_dim).asInt();
+    superfluidmode = params.get("superfluidmode", superfluidmode).asBool();
   }
 
   void print() {
@@ -186,10 +192,8 @@ struct ModelAHandlerData {
     PetscPrintf(PETSC_COMM_WORLD, "eventmode = %s\n",
                 (eventmode ? "true" : "false"));
     PetscPrintf(PETSC_COMM_WORLD, "nevents = %d\n", nevents);
-    PetscPrintf(PETSC_COMM_WORLD, "init_amp = %e\n", init_amp);
-    PetscPrintf(PETSC_COMM_WORLD, "standing_waves = %s\n",
-                (standing_waves ? "true" : "false"));
-    PetscPrintf(PETSC_COMM_WORLD, "init_dim = %d\n", init_dim);
+    PetscPrintf(PETSC_COMM_WORLD, "superfluidmode = %s\n",
+                (superfluidmode ? "true" : "false"));
   }
 };
 
@@ -560,7 +564,8 @@ public:
     DMDAGetCorners(domain, &xstart, &ystart, &zstart, &xdimension, &ydimension,
                    &zdimension);
 
-    PetscReal R = data.ahandler.init_amp;
+    PetscReal t = data.atime.t();
+    PetscReal R = sqrt(data.acoefficients.f2(t));
     PetscReal phi;
     PetscReal theta1;
     PetscReal theta2;
@@ -606,135 +611,6 @@ public:
         }
       }
     }
-
-    DMDAVecRestoreArrayDOF(domain, solution, &u);
-
-    return (0);
-  }
-
-  // Routine that initializes the fields randomly according to a wave with wave
-  // number k = 4pi/L and normalization phi^2 = init_amp = R
-  //
-  // if init_dim = 1 and standing_waves = false
-  // s_0 = R * cos(kx)
-  // s_1 = R * sin(kx)
-  // n_01 = k * chi = omega * chi
-  // rest 0
-  //
-  // if init_dim = 2
-  // s_0 = R * cos(kx) cos(ky)
-  // s_1 = R * sin(kx) cos(ky)
-  // s_2 = R * sin(ky)
-  // n_01 = k * chi = omega * chi
-  // n_02 = k * chi = omega * chi
-  // n_12 = k * chi = omega * chi
-  // rest 0
-  //
-  // if init_dim = 1 and standing_waves = true
-  // s_0 = R * cos(kx)
-  // s_1 = 0
-  // s_2 = R * sin(ky)
-  // n_01 = k * chi = omega * chi
-  // rest 0
-  PetscErrorCode initialize_wave_spins() {
-
-    constexpr auto PI = 3.14159265358979323846;
-
-    PetscScalar chi = data.acoefficients.chi;
-    PetscReal wave_k = 4 * PI / data.LX;
-    PetscReal argument;
-
-    // This Get a pointer to do the calculation
-    PetscScalar ****u;
-    DMDAVecGetArrayDOF(domain, solution, &u);
-
-    // We are going initialize the grid with the charges being gaussian random
-    // numbers. The charges are normalized so that the total charge is zero.
-    std::vector<PetscScalar> charge_sum_local(ModelAData::Ndof, 0.);
-    std::vector<PetscScalar> charge_sum(ModelAData::Ndof, 0.);
-
-    // Get the Local Corner od the vector
-    PetscInt i, j, k, L, xstart, ystart, zstart, xdimension, ydimension,
-        zdimension;
-
-    DMDAGetCorners(domain, &xstart, &ystart, &zstart, &xdimension, &ydimension,
-                   &zdimension);
-    for (k = zstart; k < zstart + zdimension; k++) {
-      for (j = ystart; j < ystart + ydimension; j++) {
-        for (i = xstart; i < xstart + xdimension; i++) {
-
-          argument = wave_k;
-          for (L = 0; L < ModelAData::Ndof; L++) {
-
-            // field components s_a
-            if (L < ModelAData::Nphi) {
-
-              // s_0 component
-              if (L == 0) {
-                u[k][j][i][L] = data.ahandler.init_amp;
-                // 1d init cond.
-                if (data.ahandler.init_dim == 1) {
-                  u[k][j][i][L] *= cos(argument * i);
-                }
-                // 2d init cond.
-                else if (data.ahandler.init_dim == 2) {
-                  u[k][j][i][L] *= cos(argument * i) * cos(argument * j);
-                }
-              }
-              // s_1 component
-              else if (L == 1) {
-                u[k][j][i][L] = data.ahandler.init_amp;
-                // 1d init cond.
-                if (data.ahandler.init_dim == 1) {
-                  // if standing wave solution
-                  if (data.ahandler.standing_waves) {
-                    u[k][j][i][L] *= 0.0;
-                  } else {
-                    u[k][j][i][L] *= sin(argument * i);
-                  }
-                }
-                // 2d init cond.
-                else if (data.ahandler.init_dim == 2) {
-                  u[k][j][i][L] *= sin(argument * i) * cos(argument * j);
-                }
-              }
-              // s_2 component
-              else if (L == 2) {
-                u[k][j][i][L] = data.ahandler.init_amp;
-                // 1d init cond.
-                if (data.ahandler.init_dim == 1) {
-                  // if standing wave solution
-                  if (data.ahandler.standing_waves) {
-                    u[k][j][i][L] *= sin(argument * i);
-                  } else {
-                    u[k][j][i][L] *= 0.0;
-                  }
-                }
-                // 2d init cond.
-                else if (data.ahandler.init_dim == 2) {
-                  u[k][j][i][L] *= sin(argument * j);
-                }
-              }
-            }
-
-            // charges n_A (4,5,6) and n_V (7,8,9)
-            else {
-              // (n_A)_0 (or n_01)
-              if (L == 4) {
-                u[k][j][i][L] = wave_k * chi;
-              }
-              // (n_A)_0 (or n_01) OR (n_V)_2 (or n_12)
-              else if (L == 5 || L == 9) {
-                // 2d init cond.
-                if (data.ahandler.init_dim == 2) {
-                  u[k][j][i][L] = wave_k * chi;
-                }
-              }
-            }
-          } // end of assignment for single point
-        }
-      }
-    } // end of loop over all points
 
     DMDAVecRestoreArrayDOF(domain, solution, &u);
 

@@ -47,6 +47,10 @@ data = {
     "eventmode": False,
     "nevents": 1,
     "diffusiononly": False
+
+    # parameters for superfluid events
+    "superfluidmode": False
+    "f2_constant" : 1, 
 }
 
 #
@@ -261,7 +265,7 @@ def seawulfrun(time="00:02:00", debug=False, shared=False, dry_run=True, moreopt
 # runs the program with current value of data  and mpiexec on local
 # mac.
 ########################################################################
-def run(program_name="SuperPions.exe", moreopts=[], dry_run=True, time=0, seed=None, ncpus="2", log_view=True):
+def run(program_name="SuperPions.exe", moreopts=[], dry_run=True, time=0, seed=None, ncpus="2", log_view=True, mpiexec="mpiexec"):
 
     prgm = find_program(program_name)
     tag = data["outputfiletag"]
@@ -278,7 +282,7 @@ def run(program_name="SuperPions.exe", moreopts=[], dry_run=True, time=0, seed=N
     datatojson()
 
     # Execute the program
-    opts = ["mpiexec", "-n", ncpus, prgm,
+    opts = [mpiexec, "-n", ncpus, prgm,
             "-input",  tag + '.json']
     if log_view:
         opts.append('-log_view')
