@@ -467,7 +467,11 @@ public:
             if (func) {
               u[k][j][i][L] = func(x, y, z, L, params);
             } else {
-              u[k][j][i][L] = 0.;
+              if (ahandler.superfluidmode and L == 0) {
+                u[k][j][i][L] = sqrt(data.acoefficients.f2(data.atime.t()));
+              } else {
+                u[k][j][i][L] = 0.;
+              }
             }
           }
         }

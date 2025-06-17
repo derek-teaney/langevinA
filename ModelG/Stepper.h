@@ -10,7 +10,6 @@ public:
   virtual ~Stepper() = default;
 };
 
-
 /////////////////////////////////////////////////////////////////////////
 //! Helper class to monitor the jumps in phi at each time step, and to
 //! record the number of successful steps
@@ -187,7 +186,8 @@ public:
   //
   // One can only do diffusion by setting onlydiffuse=true
   PV2HBSplit(ModelA &in, const std::array<unsigned int, 2> &scounts = {1, 1},
-             const bool &nodiffuse = false, const bool &onlydiffuse = false);
+             const bool &ideal = true, const bool &heatbath = true,
+             const bool &diffusion = true);
   bool step(const double &dt) override;
   void finalize() override {
     pv2.finalize();
@@ -206,8 +206,10 @@ private:
   ModelGChargeHB hbN;
 
   std::array<unsigned int, 2> stepcounts;
-  bool nodiffusion;
-  bool onlydiffusion;
+
+  bool include_ideal;     // If true, do the ideal step
+  bool include_heatbath;  // If true, do the heat bath step
+  bool include_diffusion; // If true, do the diffusion step
 };
 
 #endif

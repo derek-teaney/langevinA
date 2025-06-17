@@ -309,7 +309,7 @@ bool EulerLangevinHB::step(const double &dt) {
   // In superfluid mode the coefficients are modified.  rdtg,  which is a
   // measure of the field diffusion,  is divided by f2. Similarly the field, H,
   // is multiplied  by a factor $\bar \sigma/f$.
-  double f = 0. ;
+  double f = 0.;
   if (ahandler.superfluidmode) {
     double f = sqrt(coeff.f2(atime.t()));
     double sigmabyf = coeff.sigmabyf(atime.t());
@@ -570,9 +570,11 @@ void ModelGChargeHB::finalize() {
 /////////////////////////////////////////////////////////////////////////
 
 PV2HBSplit::PV2HBSplit(ModelA &in, const std::array<unsigned int, 2> &scounts,
-                       const bool &nodiffuse, const bool &onlydiffuse)
+                       const bool &ideal, const bool &heatbath,
+                       const bool &diffusion)
     : model(&in), pv2(in), hbPhi(in), hbN(in), stepcounts(scounts),
-      nodiffusion(nodiffuse), onlydiffusion(onlydiffuse) {}
+      include_ideal(ideal), include_heatbath(heatbath),
+      include_diffusion(diffusion) {}
 
 bool PV2HBSplit::step(const double &dt) {
 
@@ -582,17 +584,17 @@ bool PV2HBSplit::step(const double &dt) {
   PetscLogEvent ideal_log, hb_log, qhb_log;
 
   // Format of steps is ABBB,ABBB,C  for (3,2)
-  if (onlydiffusion) {
-    // pass
-  } else {
-    PetscLogEventRegister("IdealStep", 0, &ideal_log);
-    PetscLogEventRegister("HBStep", 0, &hb_log);
+  PetscLogEventRegister("IdealStep", 0, &ideal_log);
+  PetscLogEventRegister("HBStep", 0, &hb_log);
 
-    for (size_t i1 = 0; i1 < stepcounts[1]; i1++) {
+  for (size_t i1 = 0; i1 < stepcounts[1]; i1++) {
+    if (include_ideal) {
       PetscLogEventBegin(ideal_log, 0, 0, 0, 0);
       pv2.step(dt / (stepcounts[1]));
       PetscLogEventEnd(ideal_log, 0, 0, 0, 0);
+    }
 
+    if (include_heatbath) {
       PetscLogEventBegin(hb_log, 0, 0, 0, 0);
       for (size_t i0 = 0; i0 < stepcounts[0]; i0++) {
         hbPhi.step(dt / (stepcounts[0] * stepcounts[1]));
@@ -601,9 +603,7 @@ bool PV2HBSplit::step(const double &dt) {
     }
   }
 
-  if (nodiffusion) {
-    // pass
-  } else {
+  if (include_diffusion) {
     PetscLogEventRegister("QHBStep", 0, &qhb_log);
 
     PetscLogEventBegin(qhb_log, 0, 0, 0, 0);
