@@ -1,5 +1,5 @@
 # Create your small core library
-add_library(simulation_core STATIC
+add_library(modelg
     measurer.cxx
     measurer_output.cxx
     Stepper.cxx
@@ -8,21 +8,21 @@ add_library(simulation_core STATIC
 )
 
 # Attach all headers and external libraries to the core library
-# PUBLIC means anything that links to simulation_core also gets these dependencies
-target_include_directories(simulation_core PUBLIC
+# PUBLIC means anything that links to modelg also gets these dependencies
+target_include_directories(modelg PUBLIC
     ${CMAKE_SOURCE_DIR}/src # Your local .h files
     ${PETSC_INCLUDE_DIRS}
     ${HDF5_INCLUDE_DIRS}
     ${FFTW_INCLUDE_DIRS}
 )
 
-target_link_options(simulation_core PUBLIC
+target_link_options(modelg PUBLIC
     ${PETSC_LDFLAGS}
     ${HDF5_LDFLAGS}
     ${FFTW_LDFLAGS}
 )
 
-target_link_libraries(simulation_core PUBLIC
+target_link_libraries(modelg PUBLIC
     ${PETSC_LIBRARIES}
     ${HDF5_LIBRARIES}
     ${FFTW_LIBRARIES}
@@ -31,4 +31,4 @@ target_link_libraries(simulation_core PUBLIC
 
 # Build SuperPions and link it to the core library
 add_executable(SuperPions.exe SuperPions.cxx)
-target_link_libraries(SuperPions.exe PRIVATE simulation_core)
+target_link_libraries(SuperPions.exe PRIVATE modelg)
