@@ -1,69 +1,57 @@
 #!/usr/bin/env python3
-import os
-import glob
-import subprocess
 import json
-import random
-import dstack
-import datetime
-import uuid
 import math
+import os
+import random
+import subprocess
+import sys
+import uuid
 
+import dstack
 
 random.seed()
 
 data = {
     # lattice dimension
     "NX": 32,
-
     # Time stepping
     "finaltime": 10,
     "initialtime": 0,
     "deltat": 0.24,
-
     # Action
     "mass0": -4.70052,
     "dmassdt": 0,
-
-    "lambda": 4.,
+    "lambda": 4.0,
     "H": 0.003,
-    "chi": 5.,
-    "gamma": 1.,
+    "chi": 5.0,
+    "gamma": 1.0,
     "diffusion": 0.3333333,
-
     # initial condition"
     "evolverType": "PV2HBSplit23",
-
     # Full control over the stepper. This is when evolverType is set to
     # "PV2HBSplit23General"
-    "pv2hb_split_general":  {
-                "steps": "ABBABBABBC",
-                "include_ideal": True,
-                "include_heatbath": True,
-                "include_diffusion": True,
-            },
-    
+    "pv2hb_split_general": {
+        "steps": "ABBABBABBC",
+        "include_ideal": True,
+        "include_heatbath": True,
+        "include_diffusion": True,
+    },
     "seed": 122335456,
     "restart": False,
     "outputfiletag": "grun",
     "saveFrequency": 3,
     "thermalization_time": 0.0,
-
     # Options are [ "default", "restart", "quench_mode" ,  "randomspins"]
-    "initialization" : "default",
-
+    "initialization": "default",
     # for quenched initial conditions
     "quench_mode": False,
     "quench_mode_mass0": -4.70052,
-
     # For running multi-events
     "eventmode": False,
     "nevents": 1,
-
     # parameters for superfluid events
     "superfluidmode": False,
-    "f2_constant": 5.,
-
+    "f2_constant": 5.0,
 }
 
 # This is a flag to toggle input checking
@@ -73,56 +61,74 @@ CheckInputs = True
 
 
 def checkinputs():
-    if CheckInputs == False:
+    if not CheckInputs:
         return
     if data["mass0"] > 0:
-        raise SystemExit('The parameters mass0 should be negative')
+        raise SystemExit("The parameters mass0 should be negative")
     if data["dmassdt"] > 0:
-        raise SystemExit('The parameters dmassdt should be negative')
-    if data["chi"] != 5.:
-        raise SystemExit('Chi should be five')
-    if data["f2_constant"] != 5.:
-        raise SystemExit('f2 constant should be five')
-    if not data["superfluidmode"] :
-        raise SystemExit('We should be in superfluidmode')
+        raise SystemExit("The parameters dmassdt should be negative")
+    if data["chi"] != 5.0:
+        raise SystemExit("Chi should be five")
+    if data["f2_constant"] != 5.0:
+        raise SystemExit("f2 constant should be five")
+    if not data["superfluidmode"]:
+        raise SystemExit("We should be in superfluidmode")
     if data["evolverType"] != "SuperSplitStep":
         raise SystemExit('The evovlerType is not "SuperSplit"')
 
 
 # dump the data into a .json file
 def datatojson():
-    with open(data["outputfiletag"] + '.json', 'w') as outfile:
+    with open(data["outputfiletag"] + ".json", "w") as outfile:
         json.dump(data, outfile, indent=4)
+
 
 # Canonicalize the names for a given set of parameters
 
 
 def get_kzfilename(tag):
-    name = "%s_N%03d_m%08d_h%06d_tkz%06d" % (tag, data["NX"], round(
-        100000 * data["mass0"]), round(1000000 * data["H"]), round(1. / data["dmassdt"]))
+    name = "%s_N%03d_m%08d_h%06d_tkz%06d" % (
+        tag,
+        data["NX"],
+        round(100000 * data["mass0"]),
+        round(1000000 * data["H"]),
+        round(1.0 / data["dmassdt"]),
+    )
     return name
+
 
 # Canonicalize the names for a given set of parameters
 
 
 def get_qkzfilename(tag):
-    name = "%s_N%03d_m%08d_h%06d_q" % (tag, data["NX"], round(
-        100000 * data["mass0"]), round(1000000 * data["H"]))
+    name = "%s_N%03d_m%08d_h%06d_q" % (
+        tag,
+        data["NX"],
+        round(100000 * data["mass0"]),
+        round(1000000 * data["H"]),
+    )
     return name
 
 
 def getdefault_filename(tag):
     tag = data["outputfiletag"]
-    name = "%s_N%03d_m%08d_h%06d_c%05d" % (tag, data["NX"], round(
-        100000 * data["mass0"]), round(1000000 * data["H"]), round(100 * data["chi"]))
+    name = "%s_N%03d_m%08d_h%06d_c%05d" % (
+        tag,
+        data["NX"],
+        round(100000 * data["mass0"]),
+        round(1000000 * data["H"]),
+        round(100 * data["chi"]),
+    )
     return name
 
 
 # Find the program looking in the environment variable for the path
 def find_program(program_name="SuperPions.exe"):
-    path = os.environ.get('MODELGPATH')
+    path = os.environ.get("MODELGPATH")
     if path is None:
         print("Unable to find the path MODELGPATH")
+        sys.exit(1)
+
     abspath = os.path.join(path, program_name)
     if os.path.exists(abspath):
         print("Found the executable {}".format(abspath))
@@ -136,8 +142,16 @@ def find_program(program_name="SuperPions.exe"):
 #########################################################################
 
 
-def prlmrun(time=2, debug=False, dry_run=True, moreopts=[
-            "-log_view"], seed=None, nnodes=1, nodeid=False, interactive=False):
+def prlmrun(
+    time=2,
+    debug=False,
+    dry_run=True,
+    moreopts=["-log_view"],
+    seed=None,
+    nnodes=1,
+    nodeid=False,
+    interactive=False,
+):
     prgm = find_program()
 
     # Create a run directory "name"  if does not exist, and cd to it
@@ -146,8 +160,8 @@ def prlmrun(time=2, debug=False, dry_run=True, moreopts=[
     # If nodeid is True then append a random 8 digit hex number
     # to the tag labelling the run. This is so that independent runs using the
     # same inputfile, with different seeds, can be run in the same directory
+    oldtag = data["outputfiletag"]
     if nodeid:
-        oldtag = data["outputfiletag"]
         runid = "ffffffff"
         if not dry_run:
             runid = str(uuid.uuid4())[:8]
@@ -168,10 +182,10 @@ def prlmrun(time=2, debug=False, dry_run=True, moreopts=[
     #
     # Prepare the shell script
     #
-    filenamesh = tag + '.sh'
-    filenamestdout = tag + '.stdout'
+    filenamesh = tag + ".sh"
+    filenamestdout = tag + ".stdout"
 
-    fh = open(filenamesh, 'w')
+    fh = open(filenamesh, "w")
 
     tasks = int(nnodes * 128)
     cpuspertask = int(2 * 128 / (tasks / nnodes))
@@ -188,7 +202,7 @@ def prlmrun(time=2, debug=False, dry_run=True, moreopts=[
         print("#SBATCH -A m3722", file=fh)
         print("#SBATCH -C cpu", file=fh)
         print("#SBATCH -q regular", file=fh)
-        print("#SBATCH -t {}".format(int(math.ceil(time * 60.))), file=fh)
+        print("#SBATCH -t {}".format(int(math.ceil(time * 60.0))), file=fh)
         print("#SBATCH -N {}".format(nnodes), file=fh)
         print("#SBATCH --ntasks={}".format(tasks), file=fh)
         print("#SBATCH --cpus-per-task={}".format(cpuspertask), file=fh)
@@ -198,14 +212,17 @@ def prlmrun(time=2, debug=False, dry_run=True, moreopts=[
     print("export HDF5_DISABLE_VERSION_CHECK=2", file=fh)
     print("", file=fh)
     print("#run the application:", file=fh)
-    print('date  "+%%x %%T" > %s_time.out' %
-          (data["outputfiletag"]), file=fh)
+    print('date  "+%%x %%T" > %s_time.out' % (data["outputfiletag"]), file=fh)
     # Write the command that actually runds the program
-    print("srun -n %d --cpu_bind=cores -c %d %s -input %s " %
-          (tasks, cpuspertask, prgm, data["outputfiletag"] + '.json'), end=' ', file=fh)
+    print(
+        "srun -n %d --cpu_bind=cores -c %d %s -input %s "
+        % (tasks, cpuspertask, prgm, data["outputfiletag"] + ".json"),
+        end=" ",
+        file=fh,
+    )
     # This additional options are  added to the srun command
     for opt in moreopts:
-        print(opt, end=' ', file=fh)
+        print(opt, end=" ", file=fh)
     print(file=fh)
 
     # # Do any post processing of the run
@@ -213,18 +230,16 @@ def prlmrun(time=2, debug=False, dry_run=True, moreopts=[
     # print("python {} {}.json".format(programpy,data["outputfiletag"]), file=fh)
     # print(file=fh)
 
-    print('date  "+%%x %%T" >> %s_time.out' %
-          (data["outputfiletag"]), file=fh)
+    print('date  "+%%x %%T" >> %s_time.out' % (data["outputfiletag"]), file=fh)
     fh.close()
 
     # Submit the shell script
     if not dry_run:
         if interactive:
             with open(filenamestdout, "w") as outfile:
-                subprocess.run(['sh', filenamesh], stdout=outfile, check=True)
+                subprocess.run(["sh", filenamesh], stdout=outfile, check=True)
         else:
-            subprocess.run(['sbatch', filenamesh])
-
+            subprocess.run(["sbatch", filenamesh])
 
     # There was a side effect that the outputfiletag got modified
     # This should be undone for transparency
@@ -238,14 +253,15 @@ def prlmrun(time=2, debug=False, dry_run=True, moreopts=[
 # Runs on seawulf  with time in batch time. One should set dry_run=False to
 # actually run the code
 #########################################################################
-GLOBAL_PETSCPKG_PATH_SEAWULF = "${PKG_CONFIG_PATH}:/gpfs/home/adrflorio/petsc/arch-linux2-c-debug/lib/pkgconfig/"
+GLOBAL_PETSCPKG_PATH_SEAWULF = (
+    "${PKG_CONFIG_PATH}:/gpfs/home/adrflorio/petsc/arch-linux2-c-debug/lib/pkgconfig/"
+)
 
 
-def seawulfrun(time="00:02:00", debug=False,
-               shared=False, dry_run=True, moreopts=[]):
+def seawulfrun(time="00:02:00", debug=False, shared=False, dry_run=True, moreopts=[]):
     nprocesses = 24
-    filenamesh = data["outputfiletag"] + '.sh'
-    with open(filenamesh, 'w') as fh:
+    filenamesh = data["outputfiletag"] + ".sh"
+    with open(filenamesh, "w") as fh:
         print("#!/bin/bash", file=fh)
         if debug:
             print("#SBATCH -p debug-{}core".format(nprocesses), file=fh)
@@ -265,14 +281,12 @@ def seawulfrun(time="00:02:00", debug=False,
         print("module load fftw3", file=fh)
         print("module load cmake", file=fh)
         print("module load gsl", file=fh)
-        print("export PKG_CONFIG_PATH={}".format(
-            GLOBAL_PETSCPKG_PATH_SEAWULF), file=fh)
+        print("export PKG_CONFIG_PATH={}".format(GLOBAL_PETSCPKG_PATH_SEAWULF), file=fh)
         print("export MV2_ENABLE_AFFINITY=0", file=fh)
         print("", file=fh)
         print("#run the application:", file=fh)
 
-        print('date  "+%%x %%T" > %s_time.out' %
-              (data["outputfiletag"]), file=fh)
+        print('date  "+%%x %%T" > %s_time.out' % (data["outputfiletag"]), file=fh)
         # get the program
         path = os.path.abspath(os.path.dirname(__file__))
         prgm = path + "/SuperPions.exe"
@@ -284,16 +298,19 @@ def seawulfrun(time="00:02:00", debug=False,
 
         # write the command that actually runds the program
         basename = "./" + os.path.basename(data["outputfiletag"])
-        print("mpirun -n {} {} -input {} ".format(nprocesses,
-              prgm, basename + '.json'), end=' ', file=fh)
+        print(
+            "mpirun -n {} {} -input {} ".format(nprocesses, prgm, basename + ".json"),
+            end=" ",
+            file=fh,
+        )
         for opt in moreopts:
-            print(opt, end=' ', file=fh)
+            print(opt, end=" ", file=fh)
         print(file=fh)
-        print('date  "+%%x %%T" >> %s_time.out' %
-              (data["outputfiletag"]), file=fh)
+        print('date  "+%%x %%T" >> %s_time.out' % (data["outputfiletag"]), file=fh)
 
     if not dry_run:
-        subprocess.run(['sbatch', filenamesh])
+        subprocess.run(["sbatch", filenamesh])
+
 
 # runs the actual command current value of data  with mpiexec
 
@@ -303,8 +320,16 @@ def seawulfrun(time="00:02:00", debug=False,
 ########################################################################
 
 
-def run(program_name="SuperPions.exe", moreopts=[], dry_run=True,
-        time=0, seed=None, ncpus="2", log_view=True, mpiexec="mpiexec"):
+def run(
+    program_name="SuperPions.exe",
+    moreopts=[],
+    dry_run=True,
+    time=0,
+    seed=None,
+    ncpus="2",
+    log_view=True,
+    mpiexec="mpiexec",
+):
 
     prgm = find_program(program_name)
     tag = data["outputfiletag"]
@@ -321,10 +346,9 @@ def run(program_name="SuperPions.exe", moreopts=[], dry_run=True,
     datatojson()
 
     # Execute the program
-    opts = [mpiexec, "-n", ncpus, prgm,
-            "-input", tag + '.json']
+    opts = [mpiexec, "-n", ncpus, prgm, "-input", tag + ".json"]
     if log_view:
-        opts.append('-log_view')
+        opts.append("-log_view")
     opts.extend(moreopts)
     print(opts)
     if not dry_run:
