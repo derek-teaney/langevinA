@@ -20,7 +20,7 @@ mkdir build
 cd build
 
 # 2. Configure the project
-cmake ..
+cmake -DCMAKE_BUILD_TYPE=Release ..
 
 # 3. Compile the code
 make
