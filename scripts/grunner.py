@@ -14,22 +14,41 @@ random.seed()
 data = {
     # lattice dimension
     "NX": 32,
+
     # Time stepping
     "finaltime": 10,
     "initialtime": 0,
     "deltat": 0.24,
-    # Action
+
+    # Action of O4 mdoel parameters
     "mass0": -4.70052,
     "dmassdt": 0,
     "lambda": 4.0,
     "H": 0.003,
     "chi": 5.0,
+
+    # Transport Coefficients
     "gamma": 1.0,
     "diffusion": 0.3333333,
-    # initial condition"
+    # evolverType: selects the time-evolution algorithm. Options:
+    #
+    #   "PV2HBSplit23"       -- Default. Predictor-Verlet + heat-bath split
+    #                           stepper, 2nd/3rd order, fixed sequence
+    #                           "ABBABBABBC". A = ideal (Verlet) substep,
+    #                           B = heat-bath substep, C = diffusion substep.
+    #
+    #   "PV2HBSplitGeneral"  -- Same stepper but with a user-defined step
+    #                           sequence and toggles for each substep type,
+    #                           controlled by the "pv2hb_split_general" block.
+    #
+    #   "SuperSplitStep"     -- Split stepper for the superfluid sector.
+    #                           Use with superfluidmode=True. Requires a
+    #                           "SuperSplitStep" block with keys
+    #                           "step_sequence" (str, default "AB") and
+    #                           "use_implicit_step" (bool, default false).
     "evolverType": "PV2HBSplit23",
     # Full control over the stepper. This is when evolverType is set to
-    # "PV2HBSplit23General"
+    # "PV2HBSplitGeneral"
     "pv2hb_split_general": {
         "steps": "ABBABBABBC",
         "include_ideal": True,
@@ -69,12 +88,17 @@ def checkinputs():
         raise SystemExit("The parameters dmassdt should be negative")
     if data["chi"] != 5.0:
         raise SystemExit("Chi should be five")
-    if data["f2_constant"] != 5.0:
-        raise SystemExit("f2 constant should be five")
-    if not data["superfluidmode"]:
-        raise SystemExit("We should be in superfluidmode")
-    if data["evolverType"] != "SuperSplitStep":
-        raise SystemExit('The evovlerType is not "SuperSplit"')
+    if data["superfluidmode"]:
+        if data["f2_constant"] != 5.0:
+            raise SystemExit("f2 constant should be five")
+        if data["evolverType"] != "SuperSplitStep":
+            raise SystemExit('In superfluidmode evolverType must be "SuperSplitStep"')
+    else:
+        if data["evolverType"] not in ("PV2HBSplit23", "PV2HBSplitGeneral"):
+            raise SystemExit(
+                'evolverType must be "PV2HBSplit23" or "PV2HBSplitGeneral" '
+                "for non-superfluid runs"
+            )
 
 
 # dump the data into a .json file
@@ -124,9 +148,9 @@ def getdefault_filename(tag):
 
 # Find the program looking in the environment variable for the path
 def find_program(program_name="SuperPions.exe"):
-    path = os.environ.get("MODELGPATH")
+    path = os.environ.get("MODELGEXEPATH")
     if path is None:
-        print("Unable to find the path MODELGPATH")
+        print("Unable to find the path MODELGEXEPATH")
         sys.exit(1)
 
     abspath = os.path.join(path, program_name)
@@ -140,8 +164,6 @@ def find_program(program_name="SuperPions.exe"):
 #########################################################################
 # Runs on perlmutter
 #########################################################################
-
-
 def prlmrun(
     time=2,
     debug=False,
@@ -247,70 +269,6 @@ def prlmrun(
         data["outputfiletag"] = oldtag
     # return to the root directory
     dstack.popd()
-
-
-#########################################################################
-# Runs on seawulf  with time in batch time. One should set dry_run=False to
-# actually run the code
-#########################################################################
-GLOBAL_PETSCPKG_PATH_SEAWULF = (
-    "${PKG_CONFIG_PATH}:/gpfs/home/adrflorio/petsc/arch-linux2-c-debug/lib/pkgconfig/"
-)
-
-
-def seawulfrun(time="00:02:00", debug=False, shared=False, dry_run=True, moreopts=[]):
-    nprocesses = 24
-    filenamesh = data["outputfiletag"] + ".sh"
-    with open(filenamesh, "w") as fh:
-        print("#!/bin/bash", file=fh)
-        if debug:
-            print("#SBATCH -p debug-{}core".format(nprocesses), file=fh)
-            print("#SBATCH --time=00:10:00", file=fh)
-            print("#SBATCH --nodes=1", file=fh)
-            print("#SBATCH --ntasks-per-node={}".format(nprocesses), file=fh)
-        else:
-            print("#SBATCH -p long-{}core".format(nprocesses), file=fh)
-            print("#SBATCH --time={}".format(time), file=fh)
-            print("#SBATCH --nodes=1", file=fh)
-            print("#SBATCH --ntasks-per-node={}".format(nprocesses), file=fh)
-
-        print("", file=fh)
-        print("module load shared", file=fh)
-        print("module load gcc-stack", file=fh)
-        print("module load hdf5/1.10.5-parallel", file=fh)
-        print("module load fftw3", file=fh)
-        print("module load cmake", file=fh)
-        print("module load gsl", file=fh)
-        print("export PKG_CONFIG_PATH={}".format(GLOBAL_PETSCPKG_PATH_SEAWULF), file=fh)
-        print("export MV2_ENABLE_AFFINITY=0", file=fh)
-        print("", file=fh)
-        print("#run the application:", file=fh)
-
-        print('date  "+%%x %%T" > %s_time.out' % (data["outputfiletag"]), file=fh)
-        # get the program
-        path = os.path.abspath(os.path.dirname(__file__))
-        prgm = path + "/SuperPions.exe"
-        # set the seed and the inputfile
-        data["seed"] = random.randint(1, 2000000000)
-
-        # Write the data to an .json
-        datatojson()
-
-        # write the command that actually runds the program
-        basename = "./" + os.path.basename(data["outputfiletag"])
-        print(
-            "mpirun -n {} {} -input {} ".format(nprocesses, prgm, basename + ".json"),
-            end=" ",
-            file=fh,
-        )
-        for opt in moreopts:
-            print(opt, end=" ", file=fh)
-        print(file=fh)
-        print('date  "+%%x %%T" >> %s_time.out' % (data["outputfiletag"]), file=fh)
-
-    if not dry_run:
-        subprocess.run(["sbatch", filenamesh])
-
 
 # runs the actual command current value of data  with mpiexec
 
