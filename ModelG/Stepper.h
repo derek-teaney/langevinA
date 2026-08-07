@@ -200,11 +200,13 @@ class ModelGExplicitDiffusionStep : public Stepper {
 public:
   ModelGExplicitDiffusionStep(ModelA &in) : model(&in) { ; }
   bool step(const double &dt) override;
+  bool step_coarsening(const double &dt, Vec *solution_coarsened, int nsteps = 1);
   void finalize() override { ; }
   ~ModelGExplicitDiffusionStep() { ; }
 
 private:
   ModelA *model;
+  bool evolveLocalSolution(const double &dt, G_node ***phi, G_node ***phinew);
 };
 /////////////////////////////////////////////////////////////////////////
 

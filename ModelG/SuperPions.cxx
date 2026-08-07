@@ -47,16 +47,19 @@ void initialize_event(const int &ievent, ModelA *const model,
                       nlohmann::json &inputs) {
   const auto &ahandler = model->data.ahandler;
   std::string initialization = inputs["initialization"];
-
+  bool zero_charges = inputs.value("zero_charges", false);
+  
   if (initialization == "default") {
     // Do a cold start and thermalize the event
     if (ievent == 0) {
       model->initialize();
     }
     thermalize_event(model);
+
   } else if (initialization == "restart") {
     // Look for a previously saved initial condtitions
     model->read(ahandler.outputfiletag);
+
   } else if (initialization == "quench_mode") {
     // Initialize a quench.  Set the initial temperature (mass parameter)
     // according a given value and thermalize this initial condition.  Then,
@@ -89,15 +92,25 @@ void initialize_event(const int &ievent, ModelA *const model,
 
     PetscPrintf(PETSC_COMM_WORLD, "and final initial mass %e\n",
                 acoefficients.mass0);
+
   } else if (initialization == "randomspins") {
     model->initialize_random_spins();
-    model->initialize_gaussian_charges();
+    if (zero_charges) {
+        PetscScalar zero = 0.0;
+        model->initialize_gaussian_const(&zero);
+    }
+    else {
+        model->initialize_gaussian_charges();
+    }
+
   } else if (initialization == "gaussians") {
     model->initialize(initialize_gaussians, &inputs["gaussians"]);
     model->write(inputs["outputfiletag"].get<std::string>() + "_initial");
+
   } else if (initialization == "spinwaves") {
     model->initialize(initialize_wave_spins, &inputs["spinwaves"]);
     model->write(inputs["outputfiletag"].get<std::string>() + "_initial");
+
   } else {
     throw std::runtime_error(
         "Unknown initialization type: " + initialization +
@@ -165,6 +178,28 @@ void run_event(const int &ievent, ModelA *const model, Stepper *const step,
                   ahandler.current_event, steps, (double)atime.dt(),
                   (double)atime.t(), (double)atime.tfinal(),
                   model->data.mass());
+      PetscLogEventEnd(measurements, 0, 0, 0, 0);
+    }
+
+    // on separate frequency: measure coarsen solution
+    if (ahandler.saveFrequencyCoarsen > 0 and
+        steps % ahandler.saveFrequencyCoarsen == 0) {
+      PetscLogEventBegin(measurements, 0, 0, 0, 0);
+      measurer.measure_coarsen(&model->solution);
+      if (rank == 0) {
+        measurer_output->save_coarsen();
+      }
+      PetscLogEventEnd(measurements, 0, 0, 0, 0);
+    }
+
+    // on separate frequency: measure the topological charge Fourier readout
+    if (ahandler.saveFrequencyTopcharge > 0 and
+        steps % ahandler.saveFrequencyTopcharge == 0) {
+      PetscLogEventBegin(measurements, 0, 0, 0, 0);
+      measurer.measure_topcharge(&model->solution);
+      if (rank == 0) {
+        measurer_output->save_topcharge();
+      }
       PetscLogEventEnd(measurements, 0, 0, 0, 0);
     }
 
@@ -236,9 +271,9 @@ void Run(nlohmann::json &inputs) {
         inputs["SuperSplitStep"].value<bool>("use_implicit_step", false);
     std::string step_sequence =
         inputs["SuperSplitStep"].value<std::string>("step_sequence", "AB");
-    PetscPrintf(
-        PETSC_COMM_WORLD,
-        "Using the SuperSplitStep stepper step_sequence %s \n", step_sequence.c_str());
+    PetscPrintf(PETSC_COMM_WORLD,
+                "Using the SuperSplitStep stepper step_sequence %s \n",
+                step_sequence.c_str());
     step = std::make_unique<SuperSplitStep>(model, step_sequence,
                                             use_implicit_step);
     ;
@@ -294,8 +329,8 @@ int main(int argc, char **argv) {
 
   int rank = 0;
   MPI_Comm_rank(PETSC_COMM_WORLD, &rank);
-  if (rank ==0) {
-     std::cout << "Input parameters:\n" << inputs.dump(2) << std::endl;
+  if (rank == 0) {
+    std::cout << "Input parameters:\n" << inputs.dump(2) << std::endl;
   }
 
   Run(inputs);

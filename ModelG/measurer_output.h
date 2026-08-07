@@ -17,6 +17,10 @@ class measurer_output {
 public:
   virtual ~measurer_output() { ; }
   virtual void save(const std::string &what) = 0;
+  // Optional secondary outputs on their own save cadence. Backends that do not
+  // implement them (e.g. the text backend) fall back to these no-op defaults.
+  virtual void save_coarsen(const std::string &what) {}
+  virtual void save_topcharge(const std::string &what) {}
 };
 
 ////////////////////////////////////////////////////////////////////////
@@ -48,6 +52,8 @@ public:
   ~measurer_output_fasthdf5();
   //  Computes the contents of the data from measurer to the output file
   virtual void save(const std::string &what = "") override;
+  virtual void save_coarsen(const std::string &what = "") override;
+  virtual void save_topcharge(const std::string &what = "") override;
 
 private:
   Measurer *measure;
@@ -55,6 +61,9 @@ private:
 
   // One dimensional quantities
   std::unique_ptr<ntuple<1>> scalars;
+  std::unique_ptr<ntuple<1>> energy;
+  std::unique_ptr<ntuple<1>> energy_rotated;
+  std::unique_ptr<ntuple<1>> energy_phase;
   // Time and mass of the measurement is also recorded.
   std::unique_ptr<ntuple<1>> timeout;
 
@@ -82,6 +91,22 @@ private:
   std::unique_ptr<ntuple<3>> wallx_phase_k;
   std::unique_ptr<ntuple<3>> wally_phase_k;
   std::unique_ptr<ntuple<3>> wallz_phase_k;
+
+  // Output of fourier coarsened info; one ntuple per coarsen level (1..ncoarsen_steps)
+  std::vector<std::unique_ptr<ntuple<3>>> wallx_coarsened_k;
+  std::vector<std::unique_ptr<ntuple<3>>> wally_coarsened_k;
+  std::vector<std::unique_ptr<ntuple<3>>> wallz_coarsened_k;
+
+  // Spherically-averaged Fourier readout of the topological charge density.
+  // topcharge_Sk is a time series (one row per save).  The zero mode is stored
+  // as [real, imag].  The (time independent) |k| bin centers and per-shell mode
+  // counts are written once.  The FFT normalization and radial binning are
+  // recorded as string attributes on the file (see the constructor).
+  std::unique_ptr<ntuple<1>> topcharge_sk;
+  std::unique_ptr<ntuple<1>> topcharge_zero;
+  std::unique_ptr<ntuple<1>> topcharge_kbins;
+  std::unique_ptr<ntuple<1>> topcharge_nshell;
+  bool topcharge_static_written = false;
 };
 #endif
 #endif
