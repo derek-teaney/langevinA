@@ -1,8 +1,24 @@
+# OBSOLETE — active development has moved to the `SuperQuench` branch
+
+This branch (`master`) is the frozen state of the code used to produce:
+
+  A. Florio, E. Grossi, A. Mazeliauskas, A. Soloviev, D. Teaney,
+  "Supercooled Goldstone Bosons at the QCD Chiral Phase Transition,"
+  Phys. Rev. Lett. 135 (2025) no.24, 242303
+  doi:10.1103/wyn4-ncdc, arXiv:2504.03516 [hep-ph].
+
+The exact publication snapshot is preserved by the annotated tag
+`arxiv-2504.03516` (identical to the tip of this branch).
+
+Ongoing development uses the CMake-based layout on the `SuperQuench`
+branch, which is now the default branch on GitHub.
+
+---
+
+## Original README
+
 This directory is the initial steps with petsc and MODELA
 Now contains the code for:
-- 2D heat equation 
+- 2D heat equation
 - 3D heat equation for 4 fields
-- Model A pf O(4) without noise 
-
-
-
+- Model A pf O(4) without noise
